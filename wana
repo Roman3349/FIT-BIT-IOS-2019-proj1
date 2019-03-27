@@ -1,0 +1,53 @@
+#!/bin/sh
+
+# Sets up the environment
+POSIXLY_CORRECT=yes
+LANG=C_ALL
+
+FILTER=$1
+shift
+FILTER_VAL=$1
+shift
+
+COMMAND=$1
+shift
+
+INPUT=$(zcat -f "$@" 2> /dev/null)
+
+case "${FILTER}" in
+	"-a")
+		DATE=$(date -d "${FILTER_VAL}" '+%d/%b/%Y:%T %z')
+		INPUT=$(printf "%s\n" "${INPUT}" | awk -v val="${DATE}" -F '[][]' '$2 > val { print $0 }' 2>/dev/null)
+		;;
+	"-b")
+		DATE=$(date -d "${FILTER_VAL}" '+%d/%b/%Y:%T %z')
+		INPUT=$(printf "%s\n" "${INPUT}" | awk -v val="${DATE}" -F '[][]' '$2 < val { print $0 }' 2>/dev/null)
+		;;
+	"-ip")
+		INPUT=$(printf "%s\n" "${INPUT}" | awk -v ip="${FILTER_VAL}" '($1 == ip) { print $0 }' 2>/dev/null)
+		;;
+	"-uri")
+		INPUT=$(printf "%s\n" "${INPUT}" | awk -v uri="${FILTER_VAL}" '($7 == uri) { print $0 }' 2>/dev/null)
+		;;
+esac
+
+case $COMMAND in
+	"list-ip")
+		printf "%s\n" "${INPUT}" | awk '{ print $1 }' | sort | uniq
+		;;
+	"list-hosts")
+		printf "%s\n" "${INPUT}" | awk '{ print $1 }' | sort | uniq | xargs -i sh -c 'HOST=$(dig -x {} +short);if [ -z $HOST ]; then echo {}; else echo $HOST; fi'
+		;;
+	"list-uri")
+		printf "%s\n" "${INPUT}" | awk -F\" '{ print $2 }' | awk '{ print $2 }' | sort | uniq
+		;;
+	"hist-ip")
+		printf "%s\n" "${INPUT}" | awk '{ print $1 }' | sort | uniq -c | awk '{ c = ""; i = $1; while(i-- > 0) { c = c "#" }; printf "%s (%d): %s\n", $2, $1, c }'
+		;;
+	"hist-load")
+		printf "%s\n" "${INPUT}"
+		;;
+	*)
+		printf "%s\n" "${INPUT}"
+		;;
+esac
