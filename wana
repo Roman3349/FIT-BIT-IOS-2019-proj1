@@ -1,37 +1,67 @@
 #!/bin/sh
 
+# wana - simple nginx log analyser
+# Copyright (C) 2019  Roman Ondráček <xondra58@stud.fit.vutbr.cz>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
 # Sets up the environment
 POSIXLY_CORRECT=yes
 LANG=C_ALL
 
-FILTER=$1
-shift
-FILTER_VAL=$1
-shift
+# Get log files
+LOG_FILES=""
+FILTER_ARG=0
 
-COMMAND=$1
-shift
+for ARG in "$@"; do
+	if [ "${ARG}" = "-a" ] || [ "${ARG}" = "-b" ] || [ "${ARG}" = "-ip" ] || [ "${ARG}" = "-uri" ]; then
+		FILTER_ARG=1
+	fi
+	if [ $FILTER_ARG = 1 ]; then
+		FILTER_ARG=0
+	fi
+	if [ "${ARG}" != "list-ip" ] && [ "${ARG}" != "list-hosts" ] && [ "${ARG}" != "list-uri" ] && [ "${ARG}" != "hist-ip" ] && [ "${ARG}" != "hist-load" ] && [ -f "${ARG}" ]; then
+		LOG_FILES="${LOG_FILES} ${ARG}"
+	fi
+done
 
-INPUT=$(zcat -f "$@" 2> /dev/null)
+INPUT=$(zcat -f ${LOG_FILES} 2> /dev/null)
 
-case "${FILTER}" in
-	"-a")
-		DATE=$(date -d "${FILTER_VAL}" '+%d/%b/%Y:%T %z')
-		INPUT=$(printf "%s\n" "${INPUT}" | awk -v val="${DATE}" -F '[][]' '$2 > val { print $0 }' 2>/dev/null)
-		;;
-	"-b")
-		DATE=$(date -d "${FILTER_VAL}" '+%d/%b/%Y:%T %z')
-		INPUT=$(printf "%s\n" "${INPUT}" | awk -v val="${DATE}" -F '[][]' '$2 < val { print $0 }' 2>/dev/null)
-		;;
-	"-ip")
-		INPUT=$(printf "%s\n" "${INPUT}" | awk -v ip="${FILTER_VAL}" '($1 == ip) { print $0 }' 2>/dev/null)
-		;;
-	"-uri")
-		INPUT=$(printf "%s\n" "${INPUT}" | awk -v uri="${FILTER_VAL}" '($7 == uri) { print $0 }' 2>/dev/null)
-		;;
-esac
+# Parse and apply filters
+while [ $1 = "-a" ] || [ $1 = "-b" ] || [ $1 = "-ip" ] || [ $1 = "-uri" ]; do
+	case "$1" in
+		"-a")
+			DATE=$(date -d "$2" '+%d/%b/%Y:%T %z')
+			INPUT=$(printf "%s\n" "${INPUT}" | awk -v val="${DATE}" -F '[][]' '$2 > val { print $0 }')
+			;;
+		"-b")
+			DATE=$(date -d "$2" '+%d/%b/%Y:%T %z')
+			INPUT=$(printf "%s\n" "${INPUT}" | awk -v val="${DATE}" -F '[][]' '$2 < val { print $0 }')
+			;;
+		"-ip")
+			INPUT=$(printf "%s\n" "${INPUT}" | awk -v ip="$2" '($1 == ip) { print $0 }')
+			;;
+		"-uri")
+			INPUT=$(printf "%s\n" "${INPUT}" | awk -v uri="$2" '($7 == uri) { print $0 }' 2>/dev/null)
+			;;
+	esac
+	shift 2
+done
 
-case $COMMAND in
+# Parse command
+case $1 in
 	"list-ip")
 		printf "%s\n" "${INPUT}" | awk '{ print $1 }' | sort | uniq
 		;;
@@ -42,12 +72,13 @@ case $COMMAND in
 		printf "%s\n" "${INPUT}" | awk -F\" '{ print $2 }' | awk '{ print $2 }' | sort | uniq
 		;;
 	"hist-ip")
-		printf "%s\n" "${INPUT}" | awk '{ print $1 }' | sort | uniq -c | awk '{ c = ""; i = $1; while(i-- > 0) { c = c "#" }; printf "%s (%d): %s\n", $2, $1, c }'
+		printf "%s\n" "${INPUT}" | awk '{ print $1 }' | sort | uniq -c | awk '{ c = ""; i = $1; while(i-- > 0) { c = c "#" }; printf("%s (%d): %s\n", $2, $1, c) }'
 		;;
 	"hist-load")
-		printf "%s\n" "${INPUT}"
+		printf "%s\n" "${INPUT}" | awk -F '[][]' '{ print $2 }' | awk -F'[/:]' '{ printf("%s %s %s %s:00\n", $1, $2, $3, $4) }' | xargs -i sh -c 'date -d "{}" "+%F %R"' | sort | uniq -c | awk '{ c = ""; i = $1; while(i-- > 0) { c = c "#" }; printf("%s %s (%d): %s\n", $2, $3, $1, c) }'
 		;;
 	*)
 		printf "%s\n" "${INPUT}"
 		;;
 esac
+
